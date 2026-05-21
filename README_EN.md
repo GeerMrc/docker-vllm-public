@@ -35,9 +35,9 @@ huggingface-cli download Qwen/Qwen3.6-27B-FP8 --local-dir /path/to/Qwen3.6-27B-F
 # 4. Configure
 cp .env.example .env
 # Edit .env - must change:
-#   DOCKER_IMAGE=crpi-3jsqnspnt5spjb2h.ap-southeast-1.personal.cr.aliyuncs.com/maricgeer/vllm-qwen36:sm86-v0.21.0
 #   VLLM_MODEL_PATH=/path/to/Qwen3.6-27B-FP8
 #   VLLM_PRIMARY_GPU_IDS=0,1
+#   DOCKER_IMAGE is pre-set for pre-built image, no change needed
 
 # 5. Start
 sudo ./manage.sh start
@@ -52,6 +52,7 @@ git submodule update --init              # Pull vLLM source (~201MB)
 ./manage.sh build                        # Build (~45 min, auto-detects CPU cores)
 # For other GPU archs: set VLLM_BUILD_CUDA_ARCH=8.9 in .env
 # China users: set VLLM_USE_CHINA_MIRROR=true in .env
+# After build, set DOCKER_IMAGE=vllm-qwen36:rtx3090-sm86 in .env
 ```
 
 ## Model Download

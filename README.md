@@ -39,10 +39,10 @@ huggingface-cli download Qwen/Qwen3.6-27B-FP8 --local-dir /path/to/Qwen3.6-27B-F
 # 4. 配置
 cp .env.example .env
 # 编辑 .env，必须修改以下内容:
-#   DOCKER_IMAGE=crpi-3jsqnspnt5spjb2h.ap-southeast-1.personal.cr.aliyuncs.com/maricgeer/vllm-qwen36:sm86-v0.21.0
 #   VLLM_MODEL_PATH=/path/to/Qwen3.6-27B-FP8          ← 改为你的模型路径
 #   VLLM_PRIMARY_GPU_IDS=0,1                           ← 改为你的 GPU 编号
 #   VLLM_SECONDARY_GPU_IDS=2,3                         ← 如有 4 张 GPU
+#   DOCKER_IMAGE 已预设为预编译镜像，无需修改
 
 # 5. 启动
 sudo ./manage.sh start
@@ -67,7 +67,10 @@ git submodule update --init              # 拉取 vLLM 源码（~201MB）
 #   VLLM_PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 # 其他 GPU 架构: 设置 VLLM_BUILD_CUDA_ARCH=8.9（RTX 4090）等
 
-# 4. 下载模型 + 配置 + 启动（同方式一的步骤 3-5，但 DOCKER_IMAGE 保持默认）
+# 4. 下载模型 + 配置 + 启动
+# 模型下载和启动同方式一的步骤 3、5
+# 配置时需修改 .env 中的 DOCKER_IMAGE:
+#   DOCKER_IMAGE=vllm-qwen36:rtx3090-sm86              ← 源码构建使用本地标签
 ```
 
 ## 模型下载

@@ -1292,6 +1292,11 @@ case "$CMD" in
         echo ""
         if [ $build_rc -eq 0 ]; then
             echo "构建完成: ${DOCKER_IMAGE:-$DEFAULT_IMAGE}"
+            if [ "${DOCKER_IMAGE:-$DEFAULT_IMAGE}" != "$DEFAULT_IMAGE" ]; then
+                echo ""
+                echo "提示: 当前 DOCKER_IMAGE 指向预编译镜像地址，源码构建建议改回本地标签:"
+                echo "  编辑 .env: DOCKER_IMAGE=$DEFAULT_IMAGE"
+            fi
         else
             echo "构建失败 (rc=${build_rc})"
             exit $build_rc
