@@ -1,0 +1,64 @@
+# ==============================================================================
+# Qwen3.6-27B-FP8 Agent-Fast 模式（多模态，非思考）
+# 基于 agent-thinking.yaml，关闭思考模式，面向低延迟工具调用场景
+# enable_thinking=false 跳过推理环节，降低延迟和 token 开销
+# 适用: 简单工具调用、快速 Agent 响应、低延迟交互
+#
+# 上下文策略: 140K (143,360 tokens) — 标准 Agent (5-8K sys prompt) 最佳平衡点
+# KV Cache: bf16 (auto) — MTP n=1 + gpu=0.96, KV 并发 1.26x
+# MTP: n=1 — decode 37.6/s, c=4 达 203 tok/s
+#
+# 实测性能 (2×RTX 3090, 无 thinking, 完整数据见 docs/benchmark-results.md R16):
+#   c=1: 68 tok/s Wall, 37.6 tok/s Decode   c=2: 87 tok/s Wall
+#   c=4: 203 tok/s Wall                      质量: 100%
+# 注: R16 基准在 gpu=0.97 下完成, 当前配置 gpu=0.96 (预置余量), 性能一致
+#
+# 采样参数: Qwen3 官方推荐非思考模式值
+#   temperature=0.7, top_p=0.80, presence_penalty=1.5
+# ==============================================================================
+
+served_model_name: Qwen3.6-27B-FP8
+chat_template: /etc/vllm/chat_template.jinja
+chat_template_content_format: openai
+trust_remote_code: true
+tokenizer_mode: auto
+dtype: bfloat16
+tensor_parallel_size: 2
+gpu_memory_utilization: 0.96
+max_model_len: 143360
+max_num_batched_tokens: 8192
+max_num_seqs: 4
+
+kv_cache_dtype: auto
+
+compilation_config:
+  cudagraph_mode: FULL_DECODE_ONLY
+  mode: VLLM_COMPILE
+
+disable_custom_all_reduce: true
+language_model_only: false
+enable_prefix_caching: false
+enable_chunked_prefill: true
+
+reasoning_parser: qwen3
+enable_auto_tool_choice: true
+tool_call_parser: qwen3_coder
+
+# Agent-Fast 模式: 关闭思考，降低延迟
+default_chat_template_kwargs:
+  enable_thinking: false
+  preserve_thinking: false
+
+generation_config: vllm
+override_generation_config:
+  temperature: 0.7
+  top_p: 0.80
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 1.5
+  repetition_penalty: 1.0
+
+# MTP Speculative Decoding — 键名必须用连字符
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 1

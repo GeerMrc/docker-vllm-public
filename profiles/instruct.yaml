@@ -1,0 +1,56 @@
+# ==============================================================================
+# Qwen3.6-27B-FP8 非思考指令模式（多模态）
+# language_model_only=false 加载视觉编码器，支持图文输入
+# 关闭 thinking，低延迟快速响应
+# 适用: 快速问答、翻译、摘要
+#
+# 采样参数: Qwen3 官方推荐非思考模式值
+#   temperature=0.7, top_p=0.80, presence_penalty=1.5
+#   presence_penalty=1.5: 非思考模式无 CoT 推理缓冲，需要更高的存在惩罚防止输出重复
+#
+# 配置说明:
+#   enable_prefix_caching=false: 禁用 Mamba cache "align" 模式
+#   详见 think.yaml 注释。Trade-off: 失去 prefix caching 加速，获得更大上下文容量。
+#   instruct 不需要极长上下文，max_model_len=128K 足够。
+# ==============================================================================
+
+served_model_name: Qwen3.6-27B-FP8
+chat_template: /etc/vllm/chat_template.jinja
+chat_template_content_format: openai
+trust_remote_code: true
+tokenizer_mode: auto
+dtype: bfloat16
+tensor_parallel_size: 2
+gpu_memory_utilization: 0.97
+max_model_len: 131072
+max_num_batched_tokens: 8192
+max_num_seqs: 4
+
+kv_cache_dtype: fp8_e4m3
+
+compilation_config:
+  cudagraph_mode: FULL_DECODE_ONLY
+  mode: VLLM_COMPILE
+
+disable_custom_all_reduce: true
+language_model_only: false
+enable_prefix_caching: false
+enable_chunked_prefill: true
+
+reasoning_parser: qwen3
+enable_auto_tool_choice: true
+tool_call_parser: qwen3_coder
+
+# 非思考指令: 关闭 thinking，增加 presence_penalty
+default_chat_template_kwargs:
+  enable_thinking: false
+  preserve_thinking: false
+
+generation_config: vllm
+override_generation_config:
+  temperature: 0.7
+  top_p: 0.80
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 1.5
+  repetition_penalty: 1.0

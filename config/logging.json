@@ -1,0 +1,40 @@
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "vllm_stdout": {
+            "class": "vllm.logging_utils.ColoredFormatter",
+            "datefmt": "%m-%d %H:%M:%S",
+            "format": "%(levelname)s %(asctime)s [%(fileinfo)s:%(lineno)d] %(message)s"
+        },
+        "vllm_file": {
+            "class": "vllm.logging_utils.NewLineFormatter",
+            "datefmt": "%m-%d %H:%M:%S",
+            "format": "%(levelname)s %(asctime)s [%(fileinfo)s:%(lineno)d] %(message)s"
+        }
+    },
+    "handlers": {
+        "vllm_stdout": {
+            "class": "logging.StreamHandler",
+            "formatter": "vllm_stdout",
+            "level": "INFO",
+            "stream": "ext://sys.stdout"
+        },
+        "vllm_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "formatter": "vllm_file",
+            "level": "INFO",
+            "filename": "/vllm-workspace/logs/vllm.log",
+            "maxBytes": 52428800,
+            "backupCount": 5,
+            "encoding": "utf-8"
+        }
+    },
+    "loggers": {
+        "vllm": {
+            "handlers": ["vllm_stdout", "vllm_file"],
+            "level": "INFO",
+            "propagate": false
+        }
+    }
+}

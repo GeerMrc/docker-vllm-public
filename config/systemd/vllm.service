@@ -1,0 +1,56 @@
+# ==============================================================================
+# vLLM Dual Inference Service — systemd 服务模板
+#
+# 功能: 开机自启 + 关机/重启前优雅停止容器（释放 GPU 资源，防止掉驱动）
+#
+# 安装方式:
+#   ./manage.sh enable-boot    # 自动安装（替换 __PROJECT_DIR__ 为实际路径）
+#   ./manage.sh disable-boot   # 自动移除
+#
+# 手动安装:
+#   sed 's|__PROJECT_DIR__|/path/to/docker-vllm-public|g' vllm.service | sudo tee /etc/systemd/system/vllm.service
+#   sudo systemctl daemon-reload && sudo systemctl enable vllm.service
+#
+# 关键设计:
+#   - DefaultDependencies=no: 阻止 systemd 添加隐式 Conflicts=shutdown.target
+#   - Before=shutdown.target: 确保 ExecStop 在系统关机前执行
+#   - RemainAfterExit=yes: Type=oneshot 退出后保持 active，关机时触发 ExecStop
+# ==============================================================================
+
+[Unit]
+Description=vLLM Dual Inference Service (Primary + Secondary)
+Documentation=https://github.com/vllm-project/vllm
+# 禁用默认依赖，防止隐式 Conflicts=shutdown.target 导致关机时跳过 ExecStop
+DefaultDependencies=no
+After=basic.target docker.service network-online.target nvidia-persistenced.service
+Requires=docker.service
+Wants=basic.target network-online.target nvidia-persistenced.service
+# 确保关机/重启前执行 ExecStop（优雅停止容器，释放 GPU 资源）
+Before=shutdown.target reboot.target halt.target poweroff.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=__PROJECT_DIR__
+
+# 启动前 1: 开机延迟（仅 uptime < 3min 时延迟 60s，避免启动风暴）
+# 手动 systemctl start 在系统稳定后不延迟
+ExecStartPre=__PROJECT_DIR__/manage.sh boot-delay
+# 启动前 2: 检查 NVIDIA 驱动健康状态（内核模块/nvidia-smi/GPU 设备节点）
+# 驱动异常时阻止服务启动，journal 中输出详细排查指引
+ExecStartPre=__PROJECT_DIR__/manage.sh check-driver
+# 启动: manage.sh start all（含智能 GPU 检测 + 健康检查等待，最多 ~15 分钟）
+ExecStart=__PROJECT_DIR__/manage.sh start all
+# 停止: manage.sh stop all（含 --timeout 120，优雅释放 GPU）
+ExecStop=__PROJECT_DIR__/manage.sh stop all
+
+# 超时: 双服务顺序启动/停止的余量
+TimeoutStartSec=900
+TimeoutStopSec=300
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vllm-service
+
+[Install]
+WantedBy=multi-user.target

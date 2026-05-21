@@ -1,0 +1,80 @@
+# ==============================================================================
+# 测试专用 Profile (唯一测试入口)
+#
+# 用途: 调试、基准测试、参数探索。正式部署用 agent-fast / agent-thinking。
+#
+# 测试工作流: 调整本文件参数 → set-profile 切换 → 测试 → 完成后恢复生产 profile
+#   启用: ./manage.sh set-profile primary test-spec && ./manage.sh restart primary
+#   恢复: ./manage.sh set-profile primary agent-fast && ./manage.sh restart primary
+#   注: 完成 A 测试后，直接修改本文件参数进行 B 测试，不要创建新文件
+#
+# 可调整参数速查:
+#   max_model_len:      132K=135168 | 136K=139264 | 140K=143360 | 145K=148480 | 152K=155648
+#   gpu_memory_utilization:  n=1 → 0.97 (极限) | n=2 → 0.96 (释放~240MiB) | OOM → 0.95
+#   num_speculative_tokens:  1 (生产推荐) | 2 (c=4 退化~80 tok/s，仅用于 c=2-3)
+#   enable_thinking:         true (思考) | false (非思考，需配合调整采样参数)
+#   kv_cache_dtype:          auto (bf16) | fp8_e5m2 (fp8, 更大上下文但精度损失)
+#
+# R13-R17 五点实测速查 (bf16 KV, 4×RTX 3090 TP=2, 完整数据见 docs/benchmark-results.md):
+#   上下文  max_model_len  gpu_util  Decode  c=4 Wall  KV并发  Prefill上限
+#   n=1:
+#   132K    135,168        0.97      34.8    167.7     1.43x   134,736
+#   136K    139,264        0.97      36.4    216.4     1.35x   138,758
+#   140K    143,360        0.97      37.6    202.8     1.31x   142,874  ← Agent 最优
+#   145K    148,480        0.97      36.8    203.8     1.27x   147,934
+#   152K    155,648        0.97      24.0    200.3     1.21x   155,137  ← Decode 急降
+#   n=2 (gpu=0.96):
+#   140K    143,360        0.96      34.6     81.2     1.25x   142,874
+#   152K    155,648        0.96      24.7     81.9     1.16x   155,137
+#   注: n=2 c=4 一致性退化至 ~80-83 tok/s，与上下文长度无关；c=2-3 优于 n=1
+#
+# 显存边界: bf16 KV + MTP 最大 ~195K (195,968 tokens, 1.00x 并发)
+# YAML 嵌套键名必须用连字符: speculative-config (非 speculative_config)
+# ==============================================================================
+
+served_model_name: Qwen3.6-27B-FP8
+chat_template: /etc/vllm/chat_template.jinja
+chat_template_content_format: openai
+trust_remote_code: true
+tokenizer_mode: auto
+dtype: bfloat16
+tensor_parallel_size: 2
+gpu_memory_utilization: 0.97
+max_model_len: 155648
+max_num_batched_tokens: 8192
+max_num_seqs: 4
+
+# auto → bf16 (模型 dtype)，高精度 KV cache
+kv_cache_dtype: auto
+
+compilation_config:
+  cudagraph_mode: FULL_DECODE_ONLY
+  mode: VLLM_COMPILE
+
+disable_custom_all_reduce: true
+language_model_only: false
+enable_prefix_caching: false
+enable_chunked_prefill: true
+
+reasoning_parser: qwen3
+enable_auto_tool_choice: true
+tool_call_parser: qwen3_coder
+
+# Agent 模式: preserve_thinking 保留历史思考
+default_chat_template_kwargs:
+  enable_thinking: true
+  preserve_thinking: true
+
+generation_config: vllm
+override_generation_config:
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+# MTP Speculative Decoding — 键名必须用连字符
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 1

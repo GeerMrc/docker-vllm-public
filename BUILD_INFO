@@ -1,0 +1,56 @@
+# ==============================================================================
+# Docker 镜像构建版本溯源
+# 本文件记录镜像所基于的 vLLM 源码版本，用于重新编译和版本升级参考。
+# ==============================================================================
+
+[vllm-source]
+version       = 0.21.0
+commit        = ad7125a431e176d4161099480a66f0169609a690
+commit_date   = 2026-05-14 06:44:52 +0800
+branch        = main (vllm-project/vllm 官方)
+remote        = https://github.com/vllm-project/vllm.git
+describe      = v0.21.0
+
+[local-fixes]
+# 本地修复: local-fixes/ 目录，manage.sh build 自动检测、覆盖和恢复
+# auto-detection: local-fixes/CHECK 标记文件，官方已包含修复时自动跳过
+0001          = Qwen3.6 MTP 兼容性修复 (3 files, rebase 至 v0.21.0) — KV cache page_size_padded 缩放 + speculative decoding min_p/logit_bias (raise→warn+reset)
+
+[docker-image]
+name          = vllm-qwen36:rtx3090-sm86
+base_image    = nvidia/cuda:13.0.2-devel-ubuntu22.04
+final_image   = nvidia/cuda:13.0.2-base-ubuntu22.04
+python        = 3.12
+cuda          = 13.0.2
+torch_arch    = sm_86 (RTX 3090 only)
+disk_size     = 20.4 GB
+compressed    = 6.3 GB
+entrypoint    = vllm serve
+
+[external-deps]
+# 来源: ./vllm/external-src/ (通过 ./manage.sh prepare-src 预克隆)
+triton        = v3.6.0 (tag)
+cutlass       = v4.4.2 (tag)          # vLLM CMakeLists 使用
+cutlass-fa    = 62750a2b (v3.9)        # flash-attn csrc/cutlass 使用
+flash-attn    = f5bc33cfc0             # vllm-project/flash-attention (非 Dao-AILab 上游)
+deepgemm      = 891d57b4db
+flashmla      = a6ec2ba7bd             # vllm-project/FlashMLA (从 deepseek-ai 迁移, sm_86 不编译)
+qutlass       = 830d2c4537             # IST-DASLab/qutlass (原 deepseek-ai/Qutlass 已删除)
+
+[chat-template]
+source        = Qwen-Fixed-Chat-Templates (froggeric)
+file          = templates/chat_template.jinja
+model         = qwen3.6
+bugs_fixed    = 9 (详见 docker-compose.yml 注释)
+
+[model]
+name          = Qwen3.6-27B-FP8
+path          = <设置为你的模型路径，见 .env VLLM_MODEL_PATH>
+
+[build-args]
+torch_cuda_arch_list = 8.6
+max_jobs              = auto (detected via nproc)
+nvcc_threads          = auto (detected via nproc)
+RUN_WHEEL_CHECK       = false
+INSTALL_FLASHINFER    = false
+PIP_INDEX_URL         = https://pypi.org/simple/  # 中国用户可改为 https://mirrors.aliyun.com/pypi/simple/

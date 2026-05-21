@@ -1,0 +1,65 @@
+# ==============================================================================
+# Qwen3.6-27B-FP8 通用思考模式（默认，多模态）
+# language_model_only=false 加载视觉编码器，支持图文输入
+# FP8 KV + CUDA Graph FULL_DECODE_ONLY
+# 上下文: 256K (实测 261,947 tokens 通过, 2x RTX 3090)
+#
+# 配置说明:
+#   enable_prefix_caching=false: 禁用 Mamba cache "align" 模式
+#   原因: prefix_caching=true 触发 mamba_cache_mode="align"，使 DeltaNet 层
+#   state 也使用 paged KV cache。禁用后 mamba_cache_mode="none"，DeltaNet
+#   state 单独分配，仅 16 层 full_attention 使用 paged KV cache。
+#   Trade-off: 失去 prefix caching 加速，获得更大上下文容量。
+#   注: 日志 "GPU KV cache size: 95,648 tokens" 是跨 KV cache 组的 slot 计数，
+#   不代表实际上下文上限。256K 实测并发 1.43x。
+# ==============================================================================
+
+served_model_name: Qwen3.6-27B-FP8
+chat_template: /etc/vllm/chat_template.jinja
+chat_template_content_format: openai
+trust_remote_code: true
+tokenizer_mode: auto
+dtype: bfloat16
+tensor_parallel_size: 2
+gpu_memory_utilization: 0.97
+max_model_len: 262144
+max_num_batched_tokens: 8192
+max_num_seqs: 4
+
+# FP8 KV cache（FlashAttention2 融合 dequant）
+kv_cache_dtype: fp8_e4m3
+
+# CUDA Graph + torch.compile 内核融合
+compilation_config:
+  cudagraph_mode: FULL_DECODE_ONLY
+  mode: VLLM_COMPILE
+
+# RTX 3090 (sm_86) 不支持 symmetric memory
+disable_custom_all_reduce: true
+
+# 保留多模态能力
+language_model_only: false
+
+# 禁用 prefix caching 以避免 Mamba cache "align" 模式
+enable_prefix_caching: false
+enable_chunked_prefill: true
+
+# Qwen3 Thinking + 工具调用
+reasoning_parser: qwen3
+enable_auto_tool_choice: true
+tool_call_parser: qwen3_coder
+
+# 采样参数（通用思考 — 官方推荐 "Thinking mode for general tasks"）
+default_chat_template_kwargs:
+  enable_thinking: true
+  preserve_thinking: false
+
+# 使用 vllm 生成配置（覆盖模型默认值）
+generation_config: vllm
+override_generation_config:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0

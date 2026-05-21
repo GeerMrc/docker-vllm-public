@@ -1,0 +1,72 @@
+# ==============================================================================
+# Qwen3.6-27B-FP8 Agent-Thinking 模式（多模态）
+# language_model_only=false 加载视觉编码器，支持图文输入
+# preserve_thinking=true 保留历史思考，多轮工具调用
+# 适用: Agent 场景、代码助手、多轮推理
+#
+# 上下文策略: 140K (143,360 tokens) — 标准 Agent (5-8K sys prompt) 最佳平衡点
+# KV Cache: bf16 (auto) — MTP n=1 + gpu=0.96, KV 并发 1.26x
+# MTP: n=1 — decode 37.6/s, c=4 达 203 tok/s
+#
+# 本 profile 同时覆盖两种 Agent 子模式（通过客户端请求级参数切换）:
+#   - agent (默认): enable_thinking=true, preserve_thinking=true,
+#                    temperature=0.6, top_p=0.95, presence_penalty=0.0
+#   - agent-fast:    enable_thinking=false, preserve_thinking=false,
+#                    temperature=0.7, top_p=0.80, presence_penalty=1.5
+# 注: presence_penalty 差异非随意设置 — 思考模式有 CoT 推理缓冲无需惩罚;
+#     非思考模式需 presence_penalty=1.5 补偿输出多样性 (Qwen3 官方推荐)
+#
+# 客户端切换方式:
+#   API:      chat_template_kwargs: {enable_thinking: true/false}
+#             + 顶层采样参数覆盖
+#
+# 配置说明:
+#   enable_prefix_caching=false: 禁用 Mamba cache "align" 模式
+#   详见 think.yaml 注释。Trade-off: 失去 prefix caching 加速，获得更大上下文容量。
+# ==============================================================================
+
+served_model_name: Qwen3.6-27B-FP8
+chat_template: /etc/vllm/chat_template.jinja
+chat_template_content_format: openai
+trust_remote_code: true
+tokenizer_mode: auto
+dtype: bfloat16
+tensor_parallel_size: 2
+gpu_memory_utilization: 0.96
+max_model_len: 143360
+max_num_batched_tokens: 8192
+max_num_seqs: 4
+
+kv_cache_dtype: auto
+
+compilation_config:
+  cudagraph_mode: FULL_DECODE_ONLY
+  mode: VLLM_COMPILE
+
+disable_custom_all_reduce: true
+language_model_only: false
+enable_prefix_caching: false
+enable_chunked_prefill: true
+
+reasoning_parser: qwen3
+enable_auto_tool_choice: true
+tool_call_parser: qwen3_coder
+
+# Agent 模式: preserve_thinking 保留历史思考
+default_chat_template_kwargs:
+  enable_thinking: true
+  preserve_thinking: true
+
+generation_config: vllm
+override_generation_config:
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+# MTP Speculative Decoding — 键名必须用连字符
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 1

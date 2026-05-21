@@ -1,0 +1,28 @@
+# ==============================================================================
+# NVIDIA Persistence Daemon — systemd 服务模板
+#
+# 功能: 保持 NVIDIA 驱动模块常驻，避免空闲时卸载/重载导致状态不稳定
+#       在容器停止→系统关机→重启周期中，确保驱动模块始终一致
+#
+# 安装方式:
+#   ./manage.sh enable-boot    # 自动安装
+#   ./manage.sh disable-boot   # 自动移除
+#
+# 验证:
+#   nvidia-smi | grep "Persistence-M"   # 应显示 "On"
+# ==============================================================================
+
+[Unit]
+Description=NVIDIA Persistence Daemon
+After=local-fs.target
+ConditionPathExists=/usr/bin/nvidia-persistenced
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/nvidia-persistenced --user root
+ExecStop=/usr/bin/nvidia-persistenced --uninstall
+PIDFile=/var/run/nvidia-persistenced/nvidia-persistenced.pid
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

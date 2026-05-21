@@ -1,0 +1,131 @@
+# ==============================================================================
+# Qwen3.6-27B-FP8 Docker Compose 部署 — 双服务并行
+# 硬件: 4x RTX 3090 (24GB) | Primary (GPU 0,1) + Secondary (GPU 2,3)
+#
+# 用法:
+#   ./manage.sh start [primary|secondary|all]          # 启动
+#   ./manage.sh stop [primary|secondary|all]           # 停止
+#   ./manage.sh restart [primary|secondary|all]        # 重启
+#   ./manage.sh set-profile [primary|secondary] <name> # 切换 profile
+# ==============================================================================
+
+# 公共配置（image / restart / shm_size / deploy / healthcheck / logging）
+x-vllm-common: &vllm-common
+  image: ${DOCKER_IMAGE:-vllm-qwen36:rtx3090-sm86}
+  restart: unless-stopped
+  stop_grace_period: 120s
+  shm_size: "${VLLM_SHM_SIZE:-4g}"
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            # count: all 是必须的 — 实际 GPU 筛选由各服务的 CUDA_VISIBLE_DEVICES 控制
+            count: all
+            capabilities: [gpu]
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://localhost:8089/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 10
+    start_period: 300s
+  logging:
+    driver: json-file
+    options:
+      max-size: "100m"
+      max-file: "5"
+
+# 共享环境变量（双服务通用，通过 YAML merge key 合并）
+x-vllm-shared-env: &vllm-shared-env
+  OMP_NUM_THREADS: ${OMP_NUM_THREADS:-24}
+  MKL_NUM_THREADS: ${MKL_NUM_THREADS:-24}
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:False
+  NCCL_IB_DISABLE: 1
+  NCCL_P2P_DISABLE: ${NCCL_P2P_DISABLE:-}
+  VLLM_SKIP_P2P_CHECK: 1
+  VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 1
+  VLLM_CACHE_ROOT: /root/.cache/vllm
+  VLLM_USAGE_SOURCE: docker-custom-deploy
+  VLLM_LOGGING_CONFIG_PATH: /etc/vllm/logging.json
+
+services:
+
+  # === Primary 服务 → GPU 0,1 → 端口 8089 (profile 由 VLLM_PRIMARY_PROFILE 决定) ===
+  # CPU 隔离: 通过 docker-compose.override.yml 注入 cpuset（可选）
+  #   自动检测: ./manage.sh detect-topology    一键应用: ./manage.sh apply-cpuset
+  vllm-primary:
+    <<: *vllm-common
+    container_name: vllm-primary
+
+    # Dockerfile ENTRYPOINT ["vllm", "serve"]
+    # command 追加参数，核心配置来自 --config 指向的 YAML
+    command: >
+      --config /etc/vllm/config.yaml
+      --model /models/${VLLM_MODEL_DIR}
+      --host 0.0.0.0
+      --port 8089
+
+    ports:
+      - "${VLLM_PRIMARY_HOST_PORT:-8089}:8089"
+
+    volumes:
+      # vLLM YAML 配置（动态: 由 VLLM_PRIMARY_PROFILE 决定挂载哪个 profile）
+      - ./profiles/${VLLM_PRIMARY_PROFILE:-agent-fast}.yaml:/etc/vllm/config.yaml:ro
+      # 模型文件（只读挂载，不复制到镜像内）
+      - ${VLLM_MODEL_PATH}:/models/${VLLM_MODEL_DIR}:ro
+      # 修复版 Qwen3.6 chat template（修复官方 9 个 bug）
+      - ./templates/chat_template.jinja:/etc/vllm/chat_template.jinja:ro
+      # vLLM Python logging 配置（stdout + 文件双输出）
+      - ./config/logging.json:/etc/vllm/logging.json:ro
+      # torch.compile 缓存持久化（Docker named volume，双服务共享）
+      - vllm-compile-cache:/root/.cache/vllm
+      # FlashInfer JIT 缓存持久化（各服务独立 bind mount，避免并发写入）
+      - ./flashinfer-cache/primary:/root/.cache/flashinfer
+      # 日志输出（RotatingFileHandler 写入 vllm.log）
+      - ${VLLM_PRIMARY_LOG_DIR:-./logs/primary}:/vllm-workspace/logs
+
+    environment:
+      <<: *vllm-shared-env
+      CUDA_VISIBLE_DEVICES: "${VLLM_PRIMARY_GPU_IDS:-0,1}"
+      VLLM_API_KEY: "${VLLM_PRIMARY_API_KEY:-}"
+
+  # === Secondary 服务 → GPU 2,3 → 宿主端口 8099 → 容器端口 8089 (profile 由 VLLM_SECONDARY_PROFILE 决定) ===
+  # CPU 隔离: 通过 docker-compose.override.yml 注入 cpuset（可选）
+  #   自动检测: ./manage.sh detect-topology    一键应用: ./manage.sh apply-cpuset
+  vllm-secondary:
+    <<: *vllm-common
+    container_name: vllm-secondary
+
+    command: >
+      --config /etc/vllm/config.yaml
+      --model /models/${VLLM_MODEL_DIR}
+      --host 0.0.0.0
+      --port 8089
+
+    ports:
+      - "${VLLM_SECONDARY_HOST_PORT:-8099}:8089"
+
+    volumes:
+      # vLLM YAML 配置（动态: 由 VLLM_SECONDARY_PROFILE 决定挂载哪个 profile）
+      - ./profiles/${VLLM_SECONDARY_PROFILE:-agent-thinking}.yaml:/etc/vllm/config.yaml:ro
+      # 模型文件（只读挂载）
+      - ${VLLM_MODEL_PATH}:/models/${VLLM_MODEL_DIR}:ro
+      # 修复版 Qwen3.6 chat template
+      - ./templates/chat_template.jinja:/etc/vllm/chat_template.jinja:ro
+      # vLLM Python logging 配置
+      - ./config/logging.json:/etc/vllm/logging.json:ro
+      # torch.compile 缓存（共享）
+      - vllm-compile-cache:/root/.cache/vllm
+      # FlashInfer JIT 缓存持久化（各服务独立 bind mount，避免并发写入）
+      - ./flashinfer-cache/secondary:/root/.cache/flashinfer
+      # 日志输出（目录固定为 ./logs/secondary/）
+      - ${VLLM_SECONDARY_LOG_DIR:-./logs/secondary}:/vllm-workspace/logs
+
+    environment:
+      <<: *vllm-shared-env
+      CUDA_VISIBLE_DEVICES: "${VLLM_SECONDARY_GPU_IDS:-2,3}"
+      VLLM_API_KEY: "${VLLM_SECONDARY_API_KEY:-}"
+
+volumes:
+  vllm-compile-cache:
+    driver: local

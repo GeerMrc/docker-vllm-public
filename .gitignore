@@ -1,0 +1,32 @@
+# 外部依赖源码（体积大，需在 vllm/ 子模块目录下预克隆，参见 prepare-src 或 README）
+external-src/
+
+# 日志
+logs/
+
+# FlashInfer JIT 编译缓存（运行时 bind mount 持久化）
+flashinfer-cache/
+
+# 环境变量（含 API Key 等敏感信息）
+.env
+
+# Docker Compose 覆盖文件（由 manage.sh 自动生成，含硬件特定的 cpuset）
+docker-compose.override.yml
+
+# 编辑器临时文件
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+
+# macOS
+.DS_Store
+
+# 开发工具（防止误添加）
+.claude/
+CLAUDE.md
+sync-to-public.sh
